@@ -25,9 +25,12 @@ public class SpaceInvadersApplication extends Application {
     private int coordinateY = 80;
     private int coordinateX = APP_WIDTH/3 - (40*3);
     private boolean SHIFTING_RIGHT, SHIFTING_LEFT, PLAYER_SHOT, GAME_IS_WON,
-            GAME_IS_PAUSED, LIFE_END, UFO_SPAWNED, MISSILE_LAUNCHED, EXPLOSION;
+            GAME_IS_PAUSED, LIFE_END, UFO_SPAWNED, MISSILE_LAUNCHED, EXPLOSION, GAME_OVER;
     private double explosionTime, restartTime, lastAlienPosY,
             maxShiftLeft, maxShiftRight;
+
+                private int playerScore = 0;
+                private static final int GAME_OVER_BOUNDARY = APP_HEIGHT - 150; // Y position where enemies cause game over
 
     private static final Group root = new Group();
     private GameObject[][] ufos = new GameObject[5][11]; // 5 rows, 11 columns of UFOs
@@ -36,6 +39,8 @@ public class SpaceInvadersApplication extends Application {
 
     private int SPACE = 40;
     private double time = 0.40;
+    private double enemyMoveInterval = 1.5; // Base time between enemy movements in seconds
+    private double enemyMoveDistance = 15.0; // Base distance enemies move each step
 
     private List<GameObject> activeLasers = new ArrayList<>();
     private static final double LASER_SPEED = -400.0; // Negative because moving upwards
@@ -67,6 +72,14 @@ public class SpaceInvadersApplication extends Application {
         updateCurrentEnemies();
 
         gameScene.setOnKeyPressed(event -> {
+            if (GAME_OVER) {
+                // If game is over, any key restarts the game
+                if (event.getCode() == KeyCode.ENTER) {
+                    restartGame(gc2d);
+                }
+                return;
+            }
+
             if (event.getCode() == KeyCode.LEFT) {
                 moveAirplaneLeft(airplane);
             } else if (event.getCode() == KeyCode.RIGHT) {
@@ -85,6 +98,21 @@ public class SpaceInvadersApplication extends Application {
                 }
                 elapsedTime = (now - startNanoTime) / 1000000000.0;
                 startNanoTime = now;
+
+                // Clear the entire screen first
+                gc2d.clearRect(0, 0, APP_WIDTH, APP_HEIGHT);
+
+                // Always display score on top of everything
+                displayScore(gc2d);
+
+                // Check if game is over
+                if (GAME_OVER) {
+                    // Display game end message
+                    displayGameEndMessage(gc2d);
+                    // Ensure score is still visible in game over state
+                    displayScore(gc2d);
+                    return;
+                }
 
                 gc2d.clearRect(0, 0, APP_WIDTH, APP_HEIGHT);
 
@@ -111,22 +139,34 @@ public class SpaceInvadersApplication extends Application {
                 // Use a more consistent timing mechanism
                 time += elapsedTime;
 
+                // Calculate current enemy move interval based on score
+                // As score increases, interval decreases (making enemies faster)
+                // Minimum interval is enemyMoveInterval/5 (5x speed)
+                double currentMoveInterval = Math.max(enemyMoveInterval/5, enemyMoveInterval - (playerScore / 200.0 * 0.5));
+
+                // Calculate current enemy move distance based on score
+                // As score increases, move distance increases
+                double currentMoveDistance = enemyMoveDistance + (playerScore / 150.0 * 5.0);
+                currentMoveDistance = Math.min(currentMoveDistance, 40.0); // Cap at reasonable maximum
+
                 getMaxShiftSpace();
-                if (time >= 1.5) {
+                if (time >= currentMoveInterval) {
+                    int moveDistance = (int)Math.round(currentMoveDistance);
+
                     if (SHIFTING_RIGHT) {
                         System.out.println("maxShiftRight: " + maxShiftRight);
                         if (maxShiftRight < 640) {
-                            coordinateX += 15;
+                            coordinateX += moveDistance;
                         } else {
-                            coordinateY += 15;
+                            coordinateY += moveDistance;
                             SHIFTING_RIGHT = false;
                         }
                     } else if (!SHIFTING_RIGHT) {
                         if (maxShiftLeft > 80) {
                             System.out.println("maxShiftLeft: " + maxShiftLeft);
-                            coordinateX -= 15;
+                            coordinateX -= moveDistance;
                         } else {
-                            coordinateY += 15;
+                            coordinateY += moveDistance;
                             SHIFTING_RIGHT = true;
                         }
                     }
@@ -138,6 +178,8 @@ public class SpaceInvadersApplication extends Application {
                 }
                 animateEnemies(gc2d);
 
+                // Always draw score as the very last thing to ensure it's on top
+                displayScore(gc2d);
             }
         };
 
@@ -243,17 +285,31 @@ public class SpaceInvadersApplication extends Application {
     }
 
     private void animateEnemies(GraphicsContext gc) {
+        boolean enemyReachedBottom = false;
+
         for (int y = coordinateY, i = 0; y < APP_HEIGHT - 100  && i < 5; y += SPACE, i++) {
             for (int x = coordinateX, j = 0; x < 700 && j < 11; x += SPACE, j++) {
                 if (currentEnemies[i][j] != null) {
                     // Update the position in the game object
                     currentEnemies[i][j].setPosition(x * 1.0, y * 1.0);
+
+                    // Check if any enemy has reached the bottom boundary
+                    if (currentEnemies[i][j].getPosition().getValue() >= GAME_OVER_BOUNDARY) {
+                        enemyReachedBottom = true;
+                    }
+
                     // Render from the game object's current position rather than using x,y directly
                     gc.drawImage(currentEnemies[i][j].getImage(), 
                                 currentEnemies[i][j].getPosition().getKey(), 
                                 currentEnemies[i][j].getPosition().getValue());
                 }
             }
+        }
+
+        // Check if enemies reached the bottom
+        if (enemyReachedBottom && !GAME_OVER) {
+            GAME_OVER = true;
+            GAME_IS_WON = false;
         }
     }
 
@@ -358,6 +414,22 @@ public class SpaceInvadersApplication extends Application {
                         iterator.remove();
                         PLAYER_SHOT = false;
                         totalEnemies--;
+
+                        // Update score based on enemy type (height determines type)
+                        if (enemyY < 90) {
+                            playerScore += 30; // Small invaders (top row) worth more
+                        } else if (enemyY < 200) {
+                            playerScore += 20; // Medium invaders (middle rows)
+                        } else {
+                            playerScore += 10; // Large invaders (bottom rows)
+                        }
+
+                        // Check if all enemies are defeated
+                        if (totalEnemies <= 0) {
+                            GAME_OVER = true;
+                            GAME_IS_WON = true;
+                        }
+
                         collisionDetected = true;
                     }
                 }
@@ -446,5 +518,89 @@ public class SpaceInvadersApplication extends Application {
                 iterator.remove(); // Remove inactive explosions
             }
         }
+    }
+
+    /**
+     * Displays the current score on the screen
+     */
+    private void displayScore(GraphicsContext gc) {
+        // Calculate current speed factor with updated formula for max 5x
+        double currentInterval = Math.max(enemyMoveInterval/5, enemyMoveInterval - (playerScore / 200.0 * 0.5));
+        double speedFactor = enemyMoveInterval / currentInterval;
+
+        // Draw dark background for score area
+        gc.setFill(Color.BLACK);
+        gc.fillRect(10, 10, 300, 30);
+
+        // Draw score text
+        gc.setFill(Color.GREEN);
+        gc.setFont(javafx.scene.text.Font.font("Arial", 20));
+        gc.fillText("SCORE: " + playerScore, 20, 30);
+
+        // Show speed multiplier with color changing based on speed
+        // Speed color shifts from yellow to red as it increases
+        double colorIntensity = Math.min(1.0, (speedFactor - 1.0) / 4.0); // 0 to 1 based on speed 1x to 5x
+        gc.setFill(Color.color(1.0, 1.0 - colorIntensity, 0)); // Yellow to red
+        gc.fillText("SPEED: " + String.format("%.1f", speedFactor) + "x", 160, 30);
+    }
+
+    /**
+     * Displays game end message based on win/lose condition
+     */
+    private void displayGameEndMessage(GraphicsContext gc) {
+        gc.setFill(Color.WHITE);
+        gc.setFont(javafx.scene.text.Font.font("Arial", 40));
+
+        String message = GAME_IS_WON ? "YOU DA MAN!" : "YOU LOSE!";
+
+        // Calculate text position for center alignment
+        double textWidth = message.length() * 20; // Rough estimate of text width
+        double textX = (APP_WIDTH - textWidth) / 2;
+
+        // Create a semi-transparent background for the text
+        gc.setGlobalAlpha(0.7);
+        gc.setFill(Color.BLACK);
+        gc.fillRect(textX - 20, APP_HEIGHT / 2 - 40, textWidth + 40, 80);
+
+        // Draw the text
+        gc.setGlobalAlpha(1.0);
+        gc.setFill(GAME_IS_WON ? Color.GREEN : Color.RED);
+        gc.fillText(message, textX, APP_HEIGHT / 2 + 10);
+
+        // Add restart instructions
+        gc.setFont(javafx.scene.text.Font.font("Arial", 20));
+        gc.setFill(Color.WHITE);
+        gc.fillText("Press ENTER to restart", textX, APP_HEIGHT / 2 + 50);
+    }
+
+    /**
+     * Restarts the game by resetting all necessary game state variables
+     */
+    private void restartGame(GraphicsContext gc) {
+        // Reset game state variables
+        GAME_OVER = false;
+        GAME_IS_WON = false;
+        playerScore = 0;
+        totalEnemies = 0;
+        coordinateY = 80;
+        coordinateX = APP_WIDTH/3 - (40*3);
+        SHIFTING_RIGHT = false;
+        time = 0.40;
+        // Reset enemy movement speed to default values
+        enemyMoveInterval = 1.5;
+        enemyMoveDistance = 15.0;
+
+        // Clear active lasers and explosions
+        activeLasers.clear();
+        activeExplosions.clear();
+
+        // Reset player position
+        airplane.setPosition(APP_WIDTH / 2.0 - 20, APP_HEIGHT - 80.0);
+        airplane.setVelocity(0.0, 0.0);
+
+        // Respawn enemies
+        spawnEnemies(gc);
+        setMovedEnemies();
+        updateCurrentEnemies();
     }
 }
