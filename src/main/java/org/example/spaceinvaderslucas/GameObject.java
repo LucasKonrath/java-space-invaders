@@ -10,8 +10,6 @@ public class GameObject {
 
     private Pair<Double, Double> position;
     private Pair<Double, Double> velocity;
-    private double width;
-    private double height;
 
     public GameObject() {
         this.position = new Pair<>(0.0, 0.0);
@@ -21,8 +19,6 @@ public class GameObject {
 
     public void setImage(Image image) {
         this.image = image;
-        this.width = image.getWidth();
-        this.height = image.getHeight();
     }
 
     public void setImageFromFilename(String filename) {
@@ -61,5 +57,13 @@ public class GameObject {
 
     public Image getImage() {
         return this.image;
+    }
+
+    public double getX(){
+        return this.getPosition().getKey();
+    }
+
+    public double getY(){
+        return this.getPosition().getValue();
     }
 }

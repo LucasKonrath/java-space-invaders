@@ -30,7 +30,17 @@ public class SpaceInvadersApplication extends Application {
             maxShiftLeft, maxShiftRight;
 
                 private int playerScore = 0;
+                private int playerLives = 3;
+                private boolean playerInvulnerable = false;
+                private long invulnerabilityTimer = 0;
+                private static final int INVULNERABILITY_DURATION = 2000; // 2 seconds of invulnerability after being hit
                 private static final int GAME_OVER_BOUNDARY = APP_HEIGHT - 150; // Y position where enemies cause game over
+
+                // Alien shooting variables
+                private List<AlienLaser> alienLasers = new ArrayList<>();
+                private static final double ALIEN_LASER_SPEED = 200.0; // Positive because moving downwards
+                private double alienShootTimer = 0;
+                private static final double ALIEN_SHOOT_INTERVAL = 1.0; // Base time between alien shots in seconds
 
     private static final Group root = new Group();
     private GameObject[][] ufos = new GameObject[5][11]; // 5 rows, 11 columns of UFOs
@@ -52,7 +62,6 @@ public class SpaceInvadersApplication extends Application {
 
     @Override
     public void start(Stage stage) throws IOException {
-
         stage.setTitle("Space Invaders!");
         stage.setResizable(false);
 
@@ -99,6 +108,16 @@ public class SpaceInvadersApplication extends Application {
                 elapsedTime = (now - startNanoTime) / 1000000000.0;
                 startNanoTime = now;
 
+                // Handle player invulnerability timer
+                if (playerInvulnerable) {
+                    if (System.currentTimeMillis() - invulnerabilityTimer > INVULNERABILITY_DURATION) {
+                        playerInvulnerable = false;
+                    }
+                }
+
+                // Update alien shooting timer
+                alienShootTimer += elapsedTime;
+
                 // Clear the entire screen first
                 gc2d.clearRect(0, 0, APP_WIDTH, APP_HEIGHT);
 
@@ -117,17 +136,20 @@ public class SpaceInvadersApplication extends Application {
                 gc2d.clearRect(0, 0, APP_WIDTH, APP_HEIGHT);
 
                 if (airplane != null) {
-                    if (airplane.getPosition().getKey() < 50) {
-                        System.out.println("position: " + airplane.getPosition().getKey() + ", " + airplane.getPosition().getValue());
-                        airplane.setPosition(50.0 + 1, airplane.getPosition().getValue());
+                    if (airplane.getX() < 50) {
+                        System.out.println("position: " + airplane.getX() + ", " + airplane.getY());
+                        airplane.setPosition(50.0 + 1, airplane.getY());
                         airplane.setVelocity(0.0, 0.0);
-                    } else if (airplane.getPosition().getKey() > APP_WIDTH - 100) {
-                        airplane.setPosition(airplane.getPosition().getKey() - 1, airplane.getPosition().getValue());
+                    } else if (airplane.getX() > APP_WIDTH - 100) {
+                        airplane.setPosition(airplane.getX() - 1, airplane.getY());
                         airplane.setVelocity(0.0, 0.0);
                     }
                 }
 
-                airplane.render(gc2d);
+                // Render airplane with flashing effect when invulnerable
+                if (!playerInvulnerable || (System.currentTimeMillis() / 100) % 2 == 0) {
+                    airplane.render(gc2d);
+                }
                 airplane.updatePosition(gc2d, elapsedTime);
 
                 // Update and render active lasers
@@ -135,6 +157,11 @@ public class SpaceInvadersApplication extends Application {
 
                 // Update and render explosions
                 updateExplosions(gc2d, elapsedTime);
+
+                // Handle alien shooting independently
+                handleAlienShooting();
+                // Update and render alien lasers
+                updateAlienLasers(gc2d, elapsedTime);
 
                 // Use a more consistent timing mechanism
                 time += elapsedTime;
@@ -275,8 +302,8 @@ public class SpaceInvadersApplication extends Application {
                 for (int j = 0; j < 11; j++) {
                     if (previousEnemies[i][j] != null && currentEnemies[i][j] != null) {
                         currentEnemies[i][j].setPosition(
-                            previousEnemies[i][j].getPosition().getKey(),
-                            previousEnemies[i][j].getPosition().getValue()
+                            previousEnemies[i][j].getX(),
+                            previousEnemies[i][j].getY()
                         );
                     }
                 }
@@ -294,14 +321,14 @@ public class SpaceInvadersApplication extends Application {
                     currentEnemies[i][j].setPosition(x * 1.0, y * 1.0);
 
                     // Check if any enemy has reached the bottom boundary
-                    if (currentEnemies[i][j].getPosition().getValue() >= GAME_OVER_BOUNDARY) {
+                    if (currentEnemies[i][j].getY() >= GAME_OVER_BOUNDARY) {
                         enemyReachedBottom = true;
                     }
 
                     // Render from the game object's current position rather than using x,y directly
                     gc.drawImage(currentEnemies[i][j].getImage(), 
-                                currentEnemies[i][j].getPosition().getKey(), 
-                                currentEnemies[i][j].getPosition().getValue());
+                                currentEnemies[i][j].getX(), 
+                                currentEnemies[i][j].getY());
                 }
             }
         }
@@ -321,9 +348,9 @@ public class SpaceInvadersApplication extends Application {
             for (int j = 0; j < currentEnemies[0].length; j++) {
                 if (currentEnemies[i][j] != null) {
                     if (maxShiftLeft > 0.00) {
-                        maxShiftLeft = Math.min(maxShiftLeft, currentEnemies[i][j].getPosition().getKey());
+                        maxShiftLeft = Math.min(maxShiftLeft, currentEnemies[i][j].getX());
                     } else {
-                        maxShiftLeft = currentEnemies[i][j].getPosition().getKey();
+                        maxShiftLeft = currentEnemies[i][j].getX();
                     }
                     break;
                 }
@@ -334,9 +361,9 @@ public class SpaceInvadersApplication extends Application {
             for (int j = currentEnemies[0].length - 1; j >= 0; j--) {
                 if (currentEnemies[i][j] != null) {
                     if (maxShiftRight > 0.00) {
-                        maxShiftRight = Math.max(maxShiftRight, currentEnemies[i][j].getPosition().getKey());
+                        maxShiftRight = Math.max(maxShiftRight, currentEnemies[i][j].getX());
                     } else {
-                        maxShiftRight = currentEnemies[i][j].getPosition().getKey();
+                        maxShiftRight = currentEnemies[i][j].getX();
                     }
                     break;
                 }
@@ -353,8 +380,8 @@ public class SpaceInvadersApplication extends Application {
         laser.setImageFromFilename("/images/missile.png"); // Make sure you have a laser image
 
         // Position the laser at the top-center of the airplane
-        double airplaneX = airplane.getPosition().getKey();
-        double airplaneY = airplane.getPosition().getValue();
+        double airplaneX = airplane.getX();
+        double airplaneY = airplane.getY();
         laser.setPosition(airplaneX + 20, airplaneY - 10); // Position based on airplane size
 
         // Set vertical velocity (moving upward)
@@ -375,6 +402,8 @@ public class SpaceInvadersApplication extends Application {
     }
 
     private void updateLasers(GraphicsContext gc, double elapsedTime) {
+
+        // Update player lasers
         Iterator<GameObject> iterator = activeLasers.iterator();
         while (iterator.hasNext()) {
             GameObject laser = iterator.next();
@@ -383,7 +412,7 @@ public class SpaceInvadersApplication extends Application {
             laser.updatePosition(gc, elapsedTime);
 
             // Check if laser is off screen
-            if (laser.getPosition().getValue() < 0) {
+            if (laser.getY() < 0) {
                 iterator.remove();
                 PLAYER_SHOT = false;
                 continue;
@@ -395,8 +424,8 @@ public class SpaceInvadersApplication extends Application {
                 for (int j = 0; j < currentEnemies[i].length && !collisionDetected; j++) {
                     if (currentEnemies[i][j] != null && checkCollision(laser, currentEnemies[i][j])) {
                         // Get enemy position before removing it
-                        double enemyX = currentEnemies[i][j].getPosition().getKey();
-                        double enemyY = currentEnemies[i][j].getPosition().getValue();
+                        double enemyX = currentEnemies[i][j].getX();
+                        double enemyY = currentEnemies[i][j].getY();
 
                         // Create explosion at enemy position
                         createExplosion(enemyX + 15, enemyY + 15); // Center of the enemy
@@ -442,13 +471,67 @@ public class SpaceInvadersApplication extends Application {
         }
     }
 
+    /**
+     * Updates alien lasers and checks for collisions with the player
+     */
+    private void updateAlienLasers(GraphicsContext gc, double elapsedTime) {
+        if (alienLasers.isEmpty()) {
+            return; // Nothing to update
+        }
+
+        System.out.println("Updating " + alienLasers.size() + " alien lasers");
+        Iterator<AlienLaser> iterator = alienLasers.iterator();
+        while (iterator.hasNext()) {
+            AlienLaser laser = iterator.next();
+
+            // Update laser position
+            laser.update(elapsedTime);
+
+            // Check if laser is off screen
+            if (laser.isOffScreen(APP_HEIGHT)) {
+                System.out.println("Alien laser went off screen, removing");
+                iterator.remove();
+                continue;
+            }
+
+            // Check for collision with player
+            if (!playerInvulnerable && laser.checkCollision(airplane)) {
+                // Player hit - lose a life
+                playerLives--;
+                iterator.remove();
+
+                // Create explosion at player position
+                double playerX = airplane.getX();
+                double playerY = airplane.getY();
+                createExplosion(playerX + 20, playerY + 20); // Center of the player
+
+                // Make player temporarily invulnerable
+                playerInvulnerable = true;
+                invulnerabilityTimer = System.currentTimeMillis();
+
+                // Check if game over (no lives left)
+                if (playerLives <= 0) {
+                    GAME_OVER = true;
+                    GAME_IS_WON = false;
+                }
+
+                continue;
+            }
+
+            // Render laser
+            laser.render(gc);
+        }
+    }
+
+    // Collision detection now handled directly in AlienLaser class
+
     private boolean checkCollision(GameObject laser, GameObject enemy) {
         if (enemy == null) return false;
 
-        double laserX = laser.getPosition().getKey();
-        double laserY = laser.getPosition().getValue();
-        double enemyX = enemy.getPosition().getKey();
-        double enemyY = enemy.getPosition().getValue();
+        double laserX = laser.getX();
+        double laserY = laser.getY();
+        double enemyX = enemy.getX();
+        double enemyY = enemy.getY();
 
         // Adjust these values based on your sprite sizes
         int laserWidth = 4;   // Typical laser width
@@ -521,6 +604,61 @@ public class SpaceInvadersApplication extends Application {
     }
 
     /**
+     * Handles alien shooting logic
+     */
+    private void handleAlienShooting() {
+        // Use a more aggressive shooting interval to ensure aliens are firing
+        double adjustedInterval = 0.5; // Fire every half second for testing
+
+        System.out.println("Alien shoot timer: " + alienShootTimer + ", adjusted interval: " + adjustedInterval);
+
+        // Check if it's time to shoot
+        if (alienShootTimer >= adjustedInterval) {
+            System.out.println("Time to shoot!");
+            alienShootTimer = 0;
+            fireAlienLaser();
+        }
+    }
+
+    /**
+     * Creates and fires a laser from a random alien
+     */
+    private void fireAlienLaser() {
+        System.out.println("Attempting to fire alien laser");
+        // Find all active aliens
+        List<GameObject> activeAliens = new ArrayList<>();
+        for (int i = 0; i < currentEnemies.length; i++) {
+            for (int j = 0; j < currentEnemies[i].length; j++) {
+                if (currentEnemies[i][j] != null) {
+                    activeAliens.add(currentEnemies[i][j]);
+                }
+            }
+        }
+
+        // If no aliens remain, return
+        if (activeAliens.isEmpty()) {
+            System.out.println("No active aliens to shoot");
+            return;
+        }
+
+        System.out.println("Found " + activeAliens.size() + " active aliens");
+
+        // Select a random alien to shoot
+        GameObject shooter = activeAliens.get((int)(Math.random() * activeAliens.size()));
+
+        // Position laser at the bottom-center of the alien
+        double alienX = shooter.getX();
+        double alienY = shooter.getY();
+
+        // Create a new AlienLaser with proper position and speed
+        AlienLaser laser = new AlienLaser(alienX + 15, alienY + 30, ALIEN_LASER_SPEED);
+
+        // Add to alien lasers list
+        alienLasers.add(laser);
+        System.out.println("Added laser to alienLasers list, size now: " + alienLasers.size());
+    }
+
+    /**
      * Displays the current score on the screen
      */
     private void displayScore(GraphicsContext gc) {
@@ -530,7 +668,7 @@ public class SpaceInvadersApplication extends Application {
 
         // Draw dark background for score area
         gc.setFill(Color.BLACK);
-        gc.fillRect(10, 10, 300, 30);
+        gc.fillRect(10, 10, 380, 30);
 
         // Draw score text
         gc.setFill(Color.GREEN);
@@ -542,6 +680,10 @@ public class SpaceInvadersApplication extends Application {
         double colorIntensity = Math.min(1.0, (speedFactor - 1.0) / 4.0); // 0 to 1 based on speed 1x to 5x
         gc.setFill(Color.color(1.0, 1.0 - colorIntensity, 0)); // Yellow to red
         gc.fillText("SPEED: " + String.format("%.1f", speedFactor) + "x", 160, 30);
+
+        // Display player lives
+        gc.setFill(playerInvulnerable ? Color.YELLOW : Color.RED); // Yellow during invulnerability
+        gc.fillText("LIVES: " + playerLives, 280, 30);
     }
 
     /**
@@ -581,17 +723,21 @@ public class SpaceInvadersApplication extends Application {
         GAME_OVER = false;
         GAME_IS_WON = false;
         playerScore = 0;
+        playerLives = 3;
+        playerInvulnerable = false;
         totalEnemies = 0;
         coordinateY = 80;
         coordinateX = APP_WIDTH/3 - (40*3);
         SHIFTING_RIGHT = false;
         time = 0.40;
+        alienShootTimer = 0;
         // Reset enemy movement speed to default values
         enemyMoveInterval = 1.5;
         enemyMoveDistance = 15.0;
 
         // Clear active lasers and explosions
         activeLasers.clear();
+        alienLasers.clear(); // This is now a list of AlienLaser objects
         activeExplosions.clear();
 
         // Reset player position

@@ -45,6 +45,7 @@ public class Explosion {
                          size);
 
             gc.setGlobalAlpha(1.0); // Reset opacity
+            // Sound is now played once in the constructor
         }
     }
 
