@@ -1,0 +1,415 @@
+package org.example.spaceinvaderslucas;
+
+import javafx.animation.AnimationTimer;
+import javafx.application.Application;
+import javafx.scene.Group;
+import javafx.scene.Scene;
+import javafx.scene.canvas.Canvas;
+import javafx.scene.canvas.GraphicsContext;
+import javafx.scene.input.KeyCode;
+import javafx.scene.paint.Color;
+import javafx.stage.Stage;
+
+import java.io.IOException;
+import java.util.ArrayList;
+import java.util.Iterator;
+import java.util.List;
+
+public class SpaceInvadersApplication extends Application {
+
+    private final static int APP_HEIGHT = 600;
+    private final static int APP_WIDTH = 800;
+    private double elapsedTime;
+    private Long startNanoTime;
+    private int totalEnemies;
+    private int coordinateY = 80;
+    private int coordinateX = APP_WIDTH/3 - (40*3);
+    private boolean SHIFTING_RIGHT, SHIFTING_LEFT, PLAYER_SHOT, GAME_IS_WON,
+            GAME_IS_PAUSED, LIFE_END, UFO_SPAWNED, MISSILE_LAUNCHED, EXPLOSION;
+    private double explosionTime, restartTime, lastAlienPosY,
+            maxShiftLeft, maxShiftRight;
+
+    private static final Group root = new Group();
+    private GameObject[][] ufos = new GameObject[5][11]; // 5 rows, 11 columns of UFOs
+    private GameObject[][] enemiesMoved = new GameObject[5][11];
+    private GameObject[][] currentEnemies;
+
+    private int SPACE = 40;
+    private double time = 0.40;
+
+    private List<GameObject> activeLasers = new ArrayList<>();
+    private static final double LASER_SPEED = -400.0; // Negative because moving upwards
+    private static final int MAX_ACTIVE_LASERS = 3; // Limit simultaneous lasers
+    private GameObject airplane; // Store reference to the player's airplane
+
+    @Override
+    public void start(Stage stage) throws IOException {
+
+        stage.setTitle("Space Invaders!");
+        stage.setResizable(false);
+
+        Canvas gameCanvas = new Canvas(APP_WIDTH, APP_HEIGHT);
+        GraphicsContext gc2d = gameCanvas.getGraphicsContext2D();
+
+        Scene gameScene = new Scene(root);
+        gameScene.setFill(Color.BLACK);
+
+        root.getChildren().add(gameCanvas);
+
+        airplane = createAirplane();
+        airplane.render(gc2d);
+
+        spawnEnemies(gc2d);
+        setMovedEnemies();
+        updateCurrentEnemies();
+
+        gameScene.setOnKeyPressed(event -> {
+            if (event.getCode() == KeyCode.LEFT) {
+                moveAirplaneLeft(airplane);
+            } else if (event.getCode() == KeyCode.RIGHT) {
+                moveAirplaneRight(airplane);
+            } else if (event.getCode() == KeyCode.SPACE) {
+                shoot();
+            }
+        });
+
+        AnimationTimer timer = new AnimationTimer() {
+
+            @Override
+            public void handle(long now) {
+                if(startNanoTime == null){
+                    startNanoTime = System.nanoTime();
+                }
+                elapsedTime = (now - startNanoTime) / 1000000000.0;
+                startNanoTime = now;
+
+                gc2d.clearRect(0, 30, APP_WIDTH, APP_HEIGHT);
+
+                if (airplane != null) {
+                    if (airplane.getPosition().getKey() < 50) {
+                        System.out.println("position: " + airplane.getPosition().getKey() + ", " + airplane.getPosition().getValue());
+                        airplane.setPosition(50.0 + 1, airplane.getPosition().getValue());
+                        airplane.setVelocity(0.0, 0.0);
+                    } else if (airplane.getPosition().getKey() > APP_WIDTH - 100) {
+                        airplane.setPosition(airplane.getPosition().getKey() - 1, airplane.getPosition().getValue());
+                        airplane.setVelocity(0.0, 0.0);
+                    }
+                }
+
+                airplane.render(gc2d);
+                airplane.updatePosition(gc2d, elapsedTime);
+
+                // Update and render active lasers
+                updateLasers(gc2d, elapsedTime);
+
+                // Use a more consistent timing mechanism
+                time += elapsedTime;
+
+                getMaxShiftSpace();
+                if (time >= 1.5) {
+                    if (SHIFTING_RIGHT) {
+                        System.out.println("maxShiftRight: " + maxShiftRight);
+                        if (maxShiftRight < 640) {
+                            coordinateX += 15;
+                        } else {
+                            coordinateY += 15;
+                            SHIFTING_RIGHT = false;
+                        }
+                    } else if (!SHIFTING_RIGHT) {
+                        if (maxShiftLeft > 80) {
+                            System.out.println("maxShiftLeft: " + maxShiftLeft);
+                            coordinateX -= 15;
+                        } else {
+                            coordinateY += 15;
+                            SHIFTING_RIGHT = true;
+                        }
+                    }
+                    updateCurrentEnemies();
+                    time = 0;
+
+                    // Periodically verify arrays consistency
+                    verifyEnemyArraysConsistency();
+                }
+                animateEnemies(gc2d);
+
+            }
+        };
+
+        timer.start();
+
+        stage.setScene(gameScene);
+
+
+        stage.show();
+    }
+
+
+    public GameObject createAirplane(){
+        GameObject airplane = new GameObject();
+        airplane.setImageFromFilename("/images/airplane.png");
+        airplane.setPosition(APP_WIDTH / 2.0 - 20, APP_HEIGHT - 80.0);
+        return airplane;
+    }
+
+    public void moveAirplaneLeft(GameObject airplane){
+        airplane.setVelocity(-250.0, 0.0);
+    }
+
+    public void moveAirplaneRight(GameObject airplane){
+        airplane.setVelocity(250.0, 0.0);
+    }
+
+    public static void main(String[] args) {
+        launch();
+    }
+
+    private void spawnEnemies(GraphicsContext gc) {
+        for (int y = 80, i = 0; y < APP_HEIGHT / 2 + SPACE && i < 5; y += SPACE, i++) {
+            for (int x = APP_WIDTH/3 - (SPACE*3), j = 0; x < 660 && j < 11; x += SPACE, j++) {
+                if (y < 90) {
+                    ufos[i][j] = spawnAlien(x, y, "/images/small_invader_a.png");
+                    gc.drawImage(ufos[i][j].getImage(), x, y);
+                } else if (y < 200) {
+                    ufos[i][j] = spawnAlien(x, y, "/images/medium_invader_a.png");
+                    gc.drawImage(ufos[i][j].getImage(), x, y);
+                } else {
+                    ufos[i][j] = spawnAlien(x, y, "/images/large_invader_a.png");
+                    gc.drawImage(ufos[i][j].getImage(), x, y);
+                }
+                totalEnemies++;
+            }
+        }
+    }
+
+    private GameObject spawnAlien(double x, double y, String imagePath) {
+        GameObject smallAlien = new GameObject();
+        smallAlien.setSmallImageFromFilename(imagePath);
+        smallAlien.setPosition(x, y);
+        return smallAlien;
+    }
+
+    private void setMovedEnemies() {
+        for (int y = 80, i = 0; y < APP_HEIGHT / 2 + SPACE && i < 5; y += SPACE, i++) {
+            for (int x = APP_WIDTH/3 - (SPACE*3), j = 0; x < 660 && j < 11; x += SPACE, j++) {
+                // Only create moved enemies where there's a matching ufo
+                if (ufos[i][j] != null) {
+                    if (y < 90) {
+                        enemiesMoved[i][j] = spawnAlien(x, y, "/images/small_invader_b.png");
+                    } else if (y < 200) {
+                        enemiesMoved[i][j] = spawnAlien(x, y, "/images/medium_invader_b.png");
+                    } else {
+                        enemiesMoved[i][j] = spawnAlien(x, y, "/images/large_invader_b.png");
+                    }
+
+                    // Copy position from ufos if already set
+                    if (ufos[i][j].getPosition() != null) {
+                        enemiesMoved[i][j].setPosition(
+                            ufos[i][j].getPosition().getKey(),
+                            ufos[i][j].getPosition().getValue()
+                        );
+                    }
+                } else {
+                    // Ensure consistency - if no ufo, no moved enemy
+                    enemiesMoved[i][j] = null;
+                }
+            }
+        }
+    }
+
+    private void updateCurrentEnemies() {
+        // Update current enemies array reference
+        GameObject[][] previousEnemies = currentEnemies;
+        currentEnemies = currentEnemies == ufos ? enemiesMoved : ufos;
+
+        // Copy position data from previous array to maintain consistent positions
+        if (previousEnemies != null) {
+            for (int i = 0; i < 5; i++) {
+                for (int j = 0; j < 11; j++) {
+                    if (previousEnemies[i][j] != null && currentEnemies[i][j] != null) {
+                        currentEnemies[i][j].setPosition(
+                            previousEnemies[i][j].getPosition().getKey(),
+                            previousEnemies[i][j].getPosition().getValue()
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    private void animateEnemies(GraphicsContext gc) {
+        for (int y = coordinateY, i = 0; y < APP_HEIGHT - 100  && i < 5; y += SPACE, i++) {
+            for (int x = coordinateX, j = 0; x < 700 && j < 11; x += SPACE, j++) {
+                if (currentEnemies[i][j] != null) {
+                    // Update the position in the game object
+                    currentEnemies[i][j].setPosition(x * 1.0, y * 1.0);
+                    // Render from the game object's current position rather than using x,y directly
+                    gc.drawImage(currentEnemies[i][j].getImage(), 
+                                currentEnemies[i][j].getPosition().getKey(), 
+                                currentEnemies[i][j].getPosition().getValue());
+                }
+            }
+        }
+    }
+
+    private void getMaxShiftSpace() {
+        maxShiftLeft = 0.00;
+        maxShiftRight = 0.00;
+        //looking at the far left side
+        for (int i = 0; i < currentEnemies.length; i++) {
+            for (int j = 0; j < currentEnemies[0].length; j++) {
+                if (currentEnemies[i][j] != null) {
+                    if (maxShiftLeft > 0.00) {
+                        maxShiftLeft = Math.min(maxShiftLeft, currentEnemies[i][j].getPosition().getKey());
+                    } else {
+                        maxShiftLeft = currentEnemies[i][j].getPosition().getKey();
+                    }
+                    break;
+                }
+            }
+        }
+        //looking at the far right side
+        for (int i = 0; i < currentEnemies.length; i++) {
+            for (int j = currentEnemies[0].length - 1; j >= 0; j--) {
+                if (currentEnemies[i][j] != null) {
+                    if (maxShiftRight > 0.00) {
+                        maxShiftRight = Math.max(maxShiftRight, currentEnemies[i][j].getPosition().getKey());
+                    } else {
+                        maxShiftRight = currentEnemies[i][j].getPosition().getKey();
+                    }
+                    break;
+                }
+            }
+        }
+    }
+
+    private void shoot() {
+        if (activeLasers.size() >= MAX_ACTIVE_LASERS || PLAYER_SHOT) {
+            return; // Limit the number of simultaneous lasers
+        }
+
+        GameObject laser = new GameObject();
+        laser.setImageFromFilename("/images/missile.png"); // Make sure you have a laser image
+
+        // Position the laser at the top-center of the airplane
+        double airplaneX = airplane.getPosition().getKey();
+        double airplaneY = airplane.getPosition().getValue();
+        laser.setPosition(airplaneX + 20, airplaneY - 10); // Position based on airplane size
+
+        // Set vertical velocity (moving upward)
+        laser.setVelocity(0.0, LASER_SPEED);
+
+        activeLasers.add(laser);
+        PLAYER_SHOT = true;
+
+        // Automatically reset PLAYER_SHOT after a short delay to allow shooting again
+        new Thread(() -> {
+            try {
+                Thread.sleep(500); // 500ms cooldown between shots
+                PLAYER_SHOT = false;
+            } catch (InterruptedException e) {
+                e.printStackTrace();
+            }
+        }).start();
+    }
+
+    private void updateLasers(GraphicsContext gc, double elapsedTime) {
+        Iterator<GameObject> iterator = activeLasers.iterator();
+        while (iterator.hasNext()) {
+            GameObject laser = iterator.next();
+
+            // Update laser position
+            laser.updatePosition(gc, elapsedTime);
+
+            // Check if laser is off screen
+            if (laser.getPosition().getValue() < 0) {
+                iterator.remove();
+                PLAYER_SHOT = false;
+                continue;
+            }
+
+            // Check for collisions with enemies
+            boolean collisionDetected = false;
+            for (int i = 0; i < currentEnemies.length && !collisionDetected; i++) {
+                for (int j = 0; j < currentEnemies[i].length && !collisionDetected; j++) {
+                    if (currentEnemies[i][j] != null && checkCollision(laser, currentEnemies[i][j])) {
+                        // Enemy hit
+                        // Remove from both arrays to maintain consistency
+                        currentEnemies[i][j] = null;
+
+                        // Synchronize the other array (whichever one is not current)
+                        if (currentEnemies == ufos) {
+                            enemiesMoved[i][j] = null;
+                        } else {
+                            ufos[i][j] = null;
+                        }
+
+                        iterator.remove();
+                        PLAYER_SHOT = false;
+                        totalEnemies--;
+                        collisionDetected = true;
+                        // You might want to add explosion effects or sound here
+                    }
+                }
+            }
+
+            // If no collision was detected and laser is still on screen, render it
+            if (!collisionDetected) {
+                laser.render(gc);
+            }
+        }
+    }
+
+    private boolean checkCollision(GameObject laser, GameObject enemy) {
+        if (enemy == null) return false;
+
+        double laserX = laser.getPosition().getKey();
+        double laserY = laser.getPosition().getValue();
+        double enemyX = enemy.getPosition().getKey();
+        double enemyY = enemy.getPosition().getValue();
+
+        // Adjust these values based on your sprite sizes
+        int laserWidth = 4;   // Typical laser width
+        int laserHeight = 15; // Typical laser height
+        int enemyWidth = 30;  // Typical enemy width
+        int enemyHeight = 30; // Typical enemy height
+
+        return laserX < enemyX + enemyWidth &&
+               laserX + laserWidth > enemyX &&
+               laserY < enemyY + enemyHeight &&
+               laserY + laserHeight > enemyY;
+    }
+
+    /**
+     * Debug helper method to verify that both enemy arrays are consistent
+     * This helps ensure that when an enemy is destroyed in one array, it's also removed from the other.
+     */
+    private void verifyEnemyArraysConsistency() {
+        int ufosCount = 0;
+        int movedEnemiesCount = 0;
+
+        for (int i = 0; i < 5; i++) {
+            for (int j = 0; j < 11; j++) {
+                if (ufos[i][j] != null) ufosCount++;
+                if (enemiesMoved[i][j] != null) movedEnemiesCount++;
+
+                // Check for inconsistency
+                if ((ufos[i][j] == null && enemiesMoved[i][j] != null) ||
+                    (ufos[i][j] != null && enemiesMoved[i][j] == null)) {
+                    System.err.println("Enemy arrays inconsistency detected at [" + i + "][" + j + "]");
+                    // Synchronize by making both null or both populated
+                    if (ufos[i][j] == null) {
+                        enemiesMoved[i][j] = null;
+                    } else {
+                        // This case shouldn't happen if properly synchronized
+                        ufos[i][j] = null;
+                    }
+                }
+            }
+        }
+
+        if (ufosCount != movedEnemiesCount) {
+            System.err.println("Enemy count mismatch: ufos=" + ufosCount + ", enemiesMoved=" + movedEnemiesCount);
+        }
+
+    }
+}
