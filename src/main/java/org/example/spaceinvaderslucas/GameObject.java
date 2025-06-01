@@ -49,10 +49,9 @@ public class GameObject {
     }
 
     public void updatePosition(GraphicsContext graphicsContext, double elapsedTime) {
-        System.out.println("Updating position with elapsed time: " + elapsedTime);
-        position = new Pair<>(this.getPosition().getKey() + (this.velocity.getKey() * elapsedTime), this.position.getValue() +
-                (this.velocity.getValue() * elapsedTime));
-        System.out.println("New position: " + position.getKey() + ", " + position.getValue());
+        // Calculate new position based on velocity and elapsed time
+        position = new Pair<>(this.getX() + (this.velocity.getKey() * elapsedTime), 
+                          this.getY() + (this.velocity.getValue() * elapsedTime));
     }
 
     public Image getImage() {

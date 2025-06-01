@@ -42,21 +42,12 @@ public class AlienLaser {
         double playerX = player.getX();
         double playerY = player.getY();
 
-        // Adjust these values based on your sprite sizes
-        int playerWidth = 40;  // Player width
-        int playerHeight = 30; // Player height
+        int playerWidth = 40;
+        int playerHeight = 30;
 
         return x < playerX + playerWidth &&
                x + width > playerX &&
                y < playerY + playerHeight &&
                y + height > playerY;
-    }
-
-    public double getX() {
-        return x;
-    }
-
-    public double getY() {
-        return y;
     }
 }

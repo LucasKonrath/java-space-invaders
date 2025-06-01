@@ -19,49 +19,46 @@ public class SpaceInvadersApplication extends Application {
 
     private final static int APP_HEIGHT = 600;
     private final static int APP_WIDTH = 800;
+    private static final int INVULNERABILITY_DURATION = 2000; // 2 seconds of invulnerability after being hit
+    private static final int GAME_OVER_BOUNDARY = APP_HEIGHT - 150; // Y position where enemies cause game over
+    private static final double ALIEN_LASER_SPEED = 200.0; // Positive because moving downwards
+    private static final Group root = new Group();
+    private static final double LASER_SPEED = -400.0; // Negative because moving upwards
+    private static final int MAX_ACTIVE_LASERS = 15; // Limit simultaneous lasers
+    private final List<AlienLaser> alienLasers = new ArrayList<>();
+    private final GameObject[][] ufos = new GameObject[5][11]; // 5 rows, 11 columns of UFOs
+    private final GameObject[][] enemiesMoved = new GameObject[5][11];
+    private final int SPACE = 40;
+    private final List<GameObject> activeLasers = new ArrayList<>();
+    private final List<Explosion> activeExplosions = new ArrayList<>();
     private double elapsedTime;
     private Long startNanoTime;
     private int totalEnemies;
     private int coordinateY = 80;
-    private int coordinateX = APP_WIDTH/3 - (40*3);
-    private boolean SHIFTING_RIGHT, SHIFTING_LEFT, PLAYER_SHOT, GAME_IS_WON,
-            GAME_IS_PAUSED, LIFE_END, UFO_SPAWNED, MISSILE_LAUNCHED, EXPLOSION, GAME_OVER;
-    private double explosionTime, restartTime, lastAlienPosY,
-            maxShiftLeft, maxShiftRight;
-
-                private int playerScore = 0;
-                private int playerLives = 3;
-                private boolean playerInvulnerable = false;
-                private long invulnerabilityTimer = 0;
-                private static final int INVULNERABILITY_DURATION = 2000; // 2 seconds of invulnerability after being hit
-                private static final int GAME_OVER_BOUNDARY = APP_HEIGHT - 150; // Y position where enemies cause game over
-
-                // Alien shooting variables
-                private List<AlienLaser> alienLasers = new ArrayList<>();
-                private static final double ALIEN_LASER_SPEED = 200.0; // Positive because moving downwards
-                private double alienShootTimer = 0;
-                private static final double ALIEN_SHOOT_INTERVAL = 1.0; // Base time between alien shots in seconds
-
-    private static final Group root = new Group();
-    private GameObject[][] ufos = new GameObject[5][11]; // 5 rows, 11 columns of UFOs
-    private GameObject[][] enemiesMoved = new GameObject[5][11];
+    private int coordinateX = APP_WIDTH / 3 - (40 * 3);
+    private boolean SHIFTING_RIGHT, PLAYER_SHOT, GAME_IS_WON, GAME_OVER;
+    private double maxShiftLeft, maxShiftRight;
+    private boolean leftKeyPressed = false;
+    private boolean rightKeyPressed = false;
+    private int playerScore = 0;
+    private int playerLives = 3;
+    private boolean playerInvulnerable = false;
+    private long invulnerabilityTimer = 0;
+    private double alienShootTimer = 0;
     private GameObject[][] currentEnemies;
-
-    private int SPACE = 40;
     private double time = 0.40;
-    private double enemyMoveInterval = 1.5; // Base time between enemy movements in seconds
-    private double enemyMoveDistance = 15.0; // Base distance enemies move each step
+    private double enemyMoveInterval = 1.5;
+    private double enemyMoveDistance = 15.0;
+    private GameObject airplane;
 
-    private List<GameObject> activeLasers = new ArrayList<>();
-    private static final double LASER_SPEED = -400.0; // Negative because moving upwards
-    private static final int MAX_ACTIVE_LASERS = 3; // Limit simultaneous lasers
-    private GameObject airplane; // Store reference to the player's airplane
 
-    // List to store active explosions
-    private List<Explosion> activeExplosions = new ArrayList<>();
+    public static void main(String[] args) {
+        launch();
+    }
 
     @Override
     public void start(Stage stage) throws IOException {
+
         stage.setTitle("Space Invaders!");
         stage.setResizable(false);
 
@@ -82,19 +79,29 @@ public class SpaceInvadersApplication extends Application {
 
         gameScene.setOnKeyPressed(event -> {
             if (GAME_OVER) {
-                // If game is over, any key restarts the game
                 if (event.getCode() == KeyCode.ENTER) {
                     restartGame(gc2d);
                 }
-                return;
-            }
-
-            if (event.getCode() == KeyCode.LEFT) {
-                moveAirplaneLeft(airplane);
+            } else if (event.getCode() == KeyCode.LEFT) {
+                leftKeyPressed = true;
+                updateAirplaneMovement(airplane);
             } else if (event.getCode() == KeyCode.RIGHT) {
-                moveAirplaneRight(airplane);
+                rightKeyPressed = true;
+                updateAirplaneMovement(airplane);
             } else if (event.getCode() == KeyCode.SPACE) {
                 shoot();
+            }
+        });
+
+        gameScene.setOnKeyReleased(event -> {
+            if (GAME_OVER) return;
+
+            if (event.getCode() == KeyCode.LEFT) {
+                leftKeyPressed = false;
+                updateAirplaneMovement(airplane);
+            } else if (event.getCode() == KeyCode.RIGHT) {
+                rightKeyPressed = false;
+                updateAirplaneMovement(airplane);
             }
         });
 
@@ -102,13 +109,12 @@ public class SpaceInvadersApplication extends Application {
 
             @Override
             public void handle(long now) {
-                if(startNanoTime == null){
+                if (startNanoTime == null) {
                     startNanoTime = System.nanoTime();
                 }
                 elapsedTime = (now - startNanoTime) / 1000000000.0;
                 startNanoTime = now;
 
-                // Handle player invulnerability timer
                 if (playerInvulnerable) {
                     if (System.currentTimeMillis() - invulnerabilityTimer > INVULNERABILITY_DURATION) {
                         playerInvulnerable = false;
@@ -121,14 +127,10 @@ public class SpaceInvadersApplication extends Application {
                 // Clear the entire screen first
                 gc2d.clearRect(0, 0, APP_WIDTH, APP_HEIGHT);
 
-                // Always display score on top of everything
                 displayScore(gc2d);
 
-                // Check if game is over
                 if (GAME_OVER) {
-                    // Display game end message
                     displayGameEndMessage(gc2d);
-                    // Ensure score is still visible in game over state
                     displayScore(gc2d);
                     return;
                 }
@@ -137,7 +139,6 @@ public class SpaceInvadersApplication extends Application {
 
                 if (airplane != null) {
                     if (airplane.getX() < 50) {
-                        System.out.println("position: " + airplane.getX() + ", " + airplane.getY());
                         airplane.setPosition(50.0 + 1, airplane.getY());
                         airplane.setVelocity(0.0, 0.0);
                     } else if (airplane.getX() > APP_WIDTH - 100) {
@@ -146,30 +147,25 @@ public class SpaceInvadersApplication extends Application {
                     }
                 }
 
-                // Render airplane with flashing effect when invulnerable
                 if (!playerInvulnerable || (System.currentTimeMillis() / 100) % 2 == 0) {
                     airplane.render(gc2d);
                 }
                 airplane.updatePosition(gc2d, elapsedTime);
 
-                // Update and render active lasers
                 updateLasers(gc2d, elapsedTime);
 
-                // Update and render explosions
                 updateExplosions(gc2d, elapsedTime);
 
-                // Handle alien shooting independently
                 handleAlienShooting();
-                // Update and render alien lasers
+
                 updateAlienLasers(gc2d, elapsedTime);
 
-                // Use a more consistent timing mechanism
                 time += elapsedTime;
 
                 // Calculate current enemy move interval based on score
                 // As score increases, interval decreases (making enemies faster)
                 // Minimum interval is enemyMoveInterval/5 (5x speed)
-                double currentMoveInterval = Math.max(enemyMoveInterval/5, enemyMoveInterval - (playerScore / 200.0 * 0.5));
+                double currentMoveInterval = Math.max(enemyMoveInterval / 5, enemyMoveInterval - (playerScore / 200.0 * 0.5));
 
                 // Calculate current enemy move distance based on score
                 // As score increases, move distance increases
@@ -178,19 +174,17 @@ public class SpaceInvadersApplication extends Application {
 
                 getMaxShiftSpace();
                 if (time >= currentMoveInterval) {
-                    int moveDistance = (int)Math.round(currentMoveDistance);
+                    int moveDistance = (int) Math.round(currentMoveDistance);
 
                     if (SHIFTING_RIGHT) {
-                        System.out.println("maxShiftRight: " + maxShiftRight);
                         if (maxShiftRight < 640) {
                             coordinateX += moveDistance;
                         } else {
                             coordinateY += moveDistance;
                             SHIFTING_RIGHT = false;
                         }
-                    } else if (!SHIFTING_RIGHT) {
+                    } else {
                         if (maxShiftLeft > 80) {
-                            System.out.println("maxShiftLeft: " + maxShiftLeft);
                             coordinateX -= moveDistance;
                         } else {
                             coordinateY += moveDistance;
@@ -205,7 +199,6 @@ public class SpaceInvadersApplication extends Application {
                 }
                 animateEnemies(gc2d);
 
-                // Always draw score as the very last thing to ensure it's on top
                 displayScore(gc2d);
             }
         };
@@ -218,29 +211,45 @@ public class SpaceInvadersApplication extends Application {
         stage.show();
     }
 
-
-    public GameObject createAirplane(){
+    private GameObject createAirplane() {
         GameObject airplane = new GameObject();
         airplane.setImageFromFilename("/images/airplane.png");
         airplane.setPosition(APP_WIDTH / 2.0 - 20, APP_HEIGHT - 80.0);
         return airplane;
     }
 
-    public void moveAirplaneLeft(GameObject airplane){
+    private void moveAirplaneLeft(GameObject airplane) {
         airplane.setVelocity(-250.0, 0.0);
     }
 
-    public void moveAirplaneRight(GameObject airplane){
+    private void moveAirplaneRight(GameObject airplane) {
         airplane.setVelocity(250.0, 0.0);
     }
 
-    public static void main(String[] args) {
-        launch();
+    /**
+     * Stops the airplane movement by setting its velocity to zero
+     */
+    private void stopAirplane(GameObject airplane) {
+        airplane.setVelocity(0.0, 0.0);
+    }
+
+    /**
+     * Updates airplane movement based on which keys are currently pressed
+     */
+    private void updateAirplaneMovement(GameObject airplane) {
+        // If both or neither keys are pressed, stop movement
+        if ((leftKeyPressed && rightKeyPressed) || (!leftKeyPressed && !rightKeyPressed)) {
+            stopAirplane(airplane);
+        } else if (leftKeyPressed) {
+            moveAirplaneLeft(airplane);
+        } else {
+            moveAirplaneRight(airplane);
+        }
     }
 
     private void spawnEnemies(GraphicsContext gc) {
         for (int y = 80, i = 0; y < APP_HEIGHT / 2 + SPACE && i < 5; y += SPACE, i++) {
-            for (int x = APP_WIDTH/3 - (SPACE*3), j = 0; x < 660 && j < 11; x += SPACE, j++) {
+            for (int x = APP_WIDTH / 3 - (SPACE * 3), j = 0; x < 660 && j < 11; x += SPACE, j++) {
                 if (y < 90) {
                     ufos[i][j] = spawnAlien(x, y, "/images/small_invader_a.png");
                     gc.drawImage(ufos[i][j].getImage(), x, y);
@@ -265,7 +274,7 @@ public class SpaceInvadersApplication extends Application {
 
     private void setMovedEnemies() {
         for (int y = 80, i = 0; y < APP_HEIGHT / 2 + SPACE && i < 5; y += SPACE, i++) {
-            for (int x = APP_WIDTH/3 - (SPACE*3), j = 0; x < 660 && j < 11; x += SPACE, j++) {
+            for (int x = APP_WIDTH / 3 - (SPACE * 3), j = 0; x < 660 && j < 11; x += SPACE, j++) {
                 // Only create moved enemies where there's a matching ufo
                 if (ufos[i][j] != null) {
                     if (y < 90) {
@@ -279,8 +288,8 @@ public class SpaceInvadersApplication extends Application {
                     // Copy position from ufos if already set
                     if (ufos[i][j].getPosition() != null) {
                         enemiesMoved[i][j].setPosition(
-                            ufos[i][j].getPosition().getKey(),
-                            ufos[i][j].getPosition().getValue()
+                                ufos[i][j].getPosition().getKey(),
+                                ufos[i][j].getPosition().getValue()
                         );
                     }
                 } else {
@@ -302,8 +311,8 @@ public class SpaceInvadersApplication extends Application {
                 for (int j = 0; j < 11; j++) {
                     if (previousEnemies[i][j] != null && currentEnemies[i][j] != null) {
                         currentEnemies[i][j].setPosition(
-                            previousEnemies[i][j].getX(),
-                            previousEnemies[i][j].getY()
+                                previousEnemies[i][j].getX(),
+                                previousEnemies[i][j].getY()
                         );
                     }
                 }
@@ -314,7 +323,7 @@ public class SpaceInvadersApplication extends Application {
     private void animateEnemies(GraphicsContext gc) {
         boolean enemyReachedBottom = false;
 
-        for (int y = coordinateY, i = 0; y < APP_HEIGHT - 100  && i < 5; y += SPACE, i++) {
+        for (int y = coordinateY, i = 0; y < APP_HEIGHT - 100 && i < 5; y += SPACE, i++) {
             for (int x = coordinateX, j = 0; x < 700 && j < 11; x += SPACE, j++) {
                 if (currentEnemies[i][j] != null) {
                     // Update the position in the game object
@@ -326,9 +335,9 @@ public class SpaceInvadersApplication extends Application {
                     }
 
                     // Render from the game object's current position rather than using x,y directly
-                    gc.drawImage(currentEnemies[i][j].getImage(), 
-                                currentEnemies[i][j].getX(), 
-                                currentEnemies[i][j].getY());
+                    gc.drawImage(currentEnemies[i][j].getImage(),
+                            currentEnemies[i][j].getX(),
+                            currentEnemies[i][j].getY());
                 }
             }
         }
@@ -344,26 +353,26 @@ public class SpaceInvadersApplication extends Application {
         maxShiftLeft = 0.00;
         maxShiftRight = 0.00;
         //looking at the far left side
-        for (int i = 0; i < currentEnemies.length; i++) {
+        for (GameObject[] enemy : currentEnemies) {
             for (int j = 0; j < currentEnemies[0].length; j++) {
-                if (currentEnemies[i][j] != null) {
+                if (enemy[j] != null) {
                     if (maxShiftLeft > 0.00) {
-                        maxShiftLeft = Math.min(maxShiftLeft, currentEnemies[i][j].getX());
+                        maxShiftLeft = Math.min(maxShiftLeft, enemy[j].getX());
                     } else {
-                        maxShiftLeft = currentEnemies[i][j].getX();
+                        maxShiftLeft = enemy[j].getX();
                     }
                     break;
                 }
             }
         }
         //looking at the far right side
-        for (int i = 0; i < currentEnemies.length; i++) {
+        for (GameObject[] currentEnemy : currentEnemies) {
             for (int j = currentEnemies[0].length - 1; j >= 0; j--) {
-                if (currentEnemies[i][j] != null) {
+                if (currentEnemy[j] != null) {
                     if (maxShiftRight > 0.00) {
-                        maxShiftRight = Math.max(maxShiftRight, currentEnemies[i][j].getX());
+                        maxShiftRight = Math.max(maxShiftRight, currentEnemy[j].getX());
                     } else {
-                        maxShiftRight = currentEnemies[i][j].getX();
+                        maxShiftRight = currentEnemy[j].getX();
                     }
                     break;
                 }
@@ -377,12 +386,11 @@ public class SpaceInvadersApplication extends Application {
         }
 
         GameObject laser = new GameObject();
-        laser.setImageFromFilename("/images/missile.png"); // Make sure you have a laser image
+        laser.setImageFromFilename("/images/missile.png");
 
-        // Position the laser at the top-center of the airplane
         double airplaneX = airplane.getX();
         double airplaneY = airplane.getY();
-        laser.setPosition(airplaneX + 20, airplaneY - 10); // Position based on airplane size
+        laser.setPosition(airplaneX + 20, airplaneY - 10);
 
         // Set vertical velocity (moving upward)
         laser.setVelocity(0.0, LASER_SPEED);
@@ -393,7 +401,7 @@ public class SpaceInvadersApplication extends Application {
         // Automatically reset PLAYER_SHOT after a short delay to allow shooting again
         new Thread(() -> {
             try {
-                Thread.sleep(500); // 500ms cooldown between shots
+                Thread.sleep(50);
                 PLAYER_SHOT = false;
             } catch (InterruptedException e) {
                 e.printStackTrace();
@@ -523,8 +531,6 @@ public class SpaceInvadersApplication extends Application {
         }
     }
 
-    // Collision detection now handled directly in AlienLaser class
-
     private boolean checkCollision(GameObject laser, GameObject enemy) {
         if (enemy == null) return false;
 
@@ -540,9 +546,9 @@ public class SpaceInvadersApplication extends Application {
         int enemyHeight = 30; // Typical enemy height
 
         return laserX < enemyX + enemyWidth &&
-               laserX + laserWidth > enemyX &&
-               laserY < enemyY + enemyHeight &&
-               laserY + laserHeight > enemyY;
+                laserX + laserWidth > enemyX &&
+                laserY < enemyY + enemyHeight &&
+                laserY + laserHeight > enemyY;
     }
 
     /**
@@ -568,7 +574,7 @@ public class SpaceInvadersApplication extends Application {
 
                 // Check for inconsistency
                 if ((ufos[i][j] == null && enemiesMoved[i][j] != null) ||
-                    (ufos[i][j] != null && enemiesMoved[i][j] == null)) {
+                        (ufos[i][j] != null && enemiesMoved[i][j] == null)) {
                     System.err.println("Enemy arrays inconsistency detected at [" + i + "][" + j + "]");
                     // Synchronize by making both null or both populated
                     if (ufos[i][j] == null) {
@@ -644,7 +650,7 @@ public class SpaceInvadersApplication extends Application {
         System.out.println("Found " + activeAliens.size() + " active aliens");
 
         // Select a random alien to shoot
-        GameObject shooter = activeAliens.get((int)(Math.random() * activeAliens.size()));
+        GameObject shooter = activeAliens.get((int) (Math.random() * activeAliens.size()));
 
         // Position laser at the bottom-center of the alien
         double alienX = shooter.getX();
@@ -663,7 +669,7 @@ public class SpaceInvadersApplication extends Application {
      */
     private void displayScore(GraphicsContext gc) {
         // Calculate current speed factor with updated formula for max 5x
-        double currentInterval = Math.max(enemyMoveInterval/5, enemyMoveInterval - (playerScore / 200.0 * 0.5));
+        double currentInterval = Math.max(enemyMoveInterval / 5, enemyMoveInterval - (playerScore / 200.0 * 0.5));
         double speedFactor = enemyMoveInterval / currentInterval;
 
         // Draw dark background for score area
@@ -702,17 +708,17 @@ public class SpaceInvadersApplication extends Application {
         // Create a semi-transparent background for the text
         gc.setGlobalAlpha(0.7);
         gc.setFill(Color.BLACK);
-        gc.fillRect(textX - 20, APP_HEIGHT / 2 - 40, textWidth + 40, 80);
+        gc.fillRect(textX - 20, APP_HEIGHT / 2.0 - 40, textWidth + 40, 80);
 
         // Draw the text
         gc.setGlobalAlpha(1.0);
         gc.setFill(GAME_IS_WON ? Color.GREEN : Color.RED);
-        gc.fillText(message, textX, APP_HEIGHT / 2 + 10);
+        gc.fillText(message, textX, APP_HEIGHT / 2.0 + 10);
 
         // Add restart instructions
         gc.setFont(javafx.scene.text.Font.font("Arial", 20));
         gc.setFill(Color.WHITE);
-        gc.fillText("Press ENTER to restart", textX, APP_HEIGHT / 2 + 50);
+        gc.fillText("Press ENTER to restart", textX, APP_HEIGHT / 2.0 + 50);
     }
 
     /**
@@ -727,10 +733,13 @@ public class SpaceInvadersApplication extends Application {
         playerInvulnerable = false;
         totalEnemies = 0;
         coordinateY = 80;
-        coordinateX = APP_WIDTH/3 - (40*3);
+        coordinateX = APP_WIDTH / 3 - (40 * 3);
         SHIFTING_RIGHT = false;
         time = 0.40;
         alienShootTimer = 0;
+        // Reset key state variables
+        leftKeyPressed = false;
+        rightKeyPressed = false;
         // Reset enemy movement speed to default values
         enemyMoveInterval = 1.5;
         enemyMoveDistance = 15.0;
