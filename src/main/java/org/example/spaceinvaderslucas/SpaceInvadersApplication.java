@@ -42,6 +42,9 @@ public class SpaceInvadersApplication extends Application {
     private static final int MAX_ACTIVE_LASERS = 3; // Limit simultaneous lasers
     private GameObject airplane; // Store reference to the player's airplane
 
+    // List to store active explosions
+    private List<Explosion> activeExplosions = new ArrayList<>();
+
     @Override
     public void start(Stage stage) throws IOException {
 
@@ -83,7 +86,7 @@ public class SpaceInvadersApplication extends Application {
                 elapsedTime = (now - startNanoTime) / 1000000000.0;
                 startNanoTime = now;
 
-                gc2d.clearRect(0, 30, APP_WIDTH, APP_HEIGHT);
+                gc2d.clearRect(0, 0, APP_WIDTH, APP_HEIGHT);
 
                 if (airplane != null) {
                     if (airplane.getPosition().getKey() < 50) {
@@ -101,6 +104,9 @@ public class SpaceInvadersApplication extends Application {
 
                 // Update and render active lasers
                 updateLasers(gc2d, elapsedTime);
+
+                // Update and render explosions
+                updateExplosions(gc2d, elapsedTime);
 
                 // Use a more consistent timing mechanism
                 time += elapsedTime;
@@ -332,8 +338,14 @@ public class SpaceInvadersApplication extends Application {
             for (int i = 0; i < currentEnemies.length && !collisionDetected; i++) {
                 for (int j = 0; j < currentEnemies[i].length && !collisionDetected; j++) {
                     if (currentEnemies[i][j] != null && checkCollision(laser, currentEnemies[i][j])) {
-                        // Enemy hit
-                        // Remove from both arrays to maintain consistency
+                        // Get enemy position before removing it
+                        double enemyX = currentEnemies[i][j].getPosition().getKey();
+                        double enemyY = currentEnemies[i][j].getPosition().getValue();
+
+                        // Create explosion at enemy position
+                        createExplosion(enemyX + 15, enemyY + 15); // Center of the enemy
+
+                        // Enemy hit - remove from both arrays to maintain consistency
                         currentEnemies[i][j] = null;
 
                         // Synchronize the other array (whichever one is not current)
@@ -347,7 +359,6 @@ public class SpaceInvadersApplication extends Application {
                         PLAYER_SHOT = false;
                         totalEnemies--;
                         collisionDetected = true;
-                        // You might want to add explosion effects or sound here
                     }
                 }
             }
@@ -377,6 +388,14 @@ public class SpaceInvadersApplication extends Application {
                laserX + laserWidth > enemyX &&
                laserY < enemyY + enemyHeight &&
                laserY + laserHeight > enemyY;
+    }
+
+    /**
+     * Creates an explosion effect at the specified position
+     */
+    private void createExplosion(double x, double y) {
+        Explosion explosion = new Explosion(x, y);
+        activeExplosions.add(explosion);
     }
 
     /**
@@ -410,6 +429,22 @@ public class SpaceInvadersApplication extends Application {
         if (ufosCount != movedEnemiesCount) {
             System.err.println("Enemy count mismatch: ufos=" + ufosCount + ", enemiesMoved=" + movedEnemiesCount);
         }
+    }
 
+    /**
+     * Updates and renders all active explosions
+     */
+    private void updateExplosions(GraphicsContext gc, double elapsedTime) {
+        Iterator<Explosion> iterator = activeExplosions.iterator();
+        while (iterator.hasNext()) {
+            Explosion explosion = iterator.next();
+            explosion.update(elapsedTime);
+
+            if (explosion.isActive()) {
+                explosion.render(gc);
+            } else {
+                iterator.remove(); // Remove inactive explosions
+            }
+        }
     }
 }
